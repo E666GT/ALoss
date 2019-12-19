@@ -6,8 +6,9 @@
 author baiyu
 """
 
+import time
 import os
-import sys
+
 import argparse
 from datetime import datetime
 
@@ -26,6 +27,15 @@ from tensorboardX import SummaryWriter
 
 from conf import settings
 from utils import get_network, get_training_dataloader, get_test_dataloader, WarmUpLR
+
+import sys
+sys.path.append("..")
+import LossFuncs
+from LossFuncs import ASORELoss_mat
+from LossFuncs import ASORELoss
+from LossFuncs import ASORELoss_mat2
+from LossFuncs import ASORELoss_mat3
+from LossFuncs import COT
 
 def train(epoch):
 
@@ -103,9 +113,36 @@ def eval_training(epoch):
     return correct.float() / len(cifar100_test_loader.dataset)
 
 if __name__ == '__main__':
-    
+
+    """
+    Parameters Setting for Experiments
+    """
+    settings.EPOCH=2 # run epoch = EPOCH -1
+    EXP_NET="vgg16"
+    EXP_LossFunction="am3" # ori, COT(without ori), a,am, a2, a3...
+    """
+    Parameters End
+    """
+    if(EXP_LossFunction=="ori"):
+        loss_function = nn.CrossEntropyLoss()
+    elif(EXP_LossFunction=="a"):
+        loss_function = ASORELoss.ASORELoss()
+    elif(EXP_LossFunction=="am"):
+        loss_function = ASORELoss_mat.ASORELoss_mat()
+    elif(EXP_LossFunction=="am2"):
+        loss_function = ASORELoss_mat2.ASORELoss_mat()
+    elif(EXP_LossFunction=="am3"):
+        loss_function = ASORELoss_mat3.ASORELoss_mat()
+    elif(EXP_LossFunction=="COT"):
+        loss_function = COT.ComplementEntropy()
+        # print("Error: loss_cuntion COT not defined. Exit!")
+        # while(1):
+        #     time.sleep(10)
+
+
     parser = argparse.ArgumentParser()
-    parser.add_argument('-net', type=str, required=True, help='net type')
+    # parser.add_argument('-net', type=str, required=True, help='net type')
+    parser.add_argument('-net', type=str, default=EXP_NET, help='net type')
     parser.add_argument('-gpu', type=bool, default=True, help='use gpu or not')
     parser.add_argument('-w', type=int, default=2, help='number of workers for dataloader')
     parser.add_argument('-b', type=int, default=128, help='batch size for dataloader')
@@ -132,19 +169,26 @@ if __name__ == '__main__':
         batch_size=args.b,
         shuffle=args.s
     )
-    
-    loss_function = nn.CrossEntropyLoss()
+
+
+
     optimizer = optim.SGD(net.parameters(), lr=args.lr, momentum=0.9, weight_decay=5e-4)
     train_scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=settings.MILESTONES, gamma=0.2) #learning rate decay
     iter_per_epoch = len(cifar100_training_loader)
     warmup_scheduler = WarmUpLR(optimizer, iter_per_epoch * args.warm)
-    checkpoint_path = os.path.join(settings.CHECKPOINT_PATH, args.net, settings.TIME_NOW)
+
+    time_stamp = str(time.strftime('%Y_%m_%d_%h_%m', time.localtime(time.time())))
+    checkpoint_path = os.path.join(settings.CHECKPOINT_PATH, args.net, time_stamp)
 
     #use tensorboard
     if not os.path.exists(settings.LOG_DIR):
         os.mkdir(settings.LOG_DIR)
-    writer = SummaryWriter(log_dir=os.path.join(
-            settings.LOG_DIR, args.net, settings.TIME_NOW))
+    log_dir = os.path.join(
+        settings.LOG_DIR, args.net, time_stamp)
+
+    print("log_dir",log_dir)
+    print("checkpoint_path",checkpoint_path)
+    writer = SummaryWriter(log_dir=log_dir)
     input_tensor = torch.Tensor(12, 3, 32, 32).cuda()
     writer.add_graph(net, Variable(input_tensor, requires_grad=True))
 
@@ -153,7 +197,8 @@ if __name__ == '__main__':
         os.makedirs(checkpoint_path)
     checkpoint_path = os.path.join(checkpoint_path, '{net}-{epoch}-{type}.pth')
 
-    best_acc = 0.0
+    best_acc = 0.
+    print("max epoch,",settings.EPOCH)
     for epoch in range(1, settings.EPOCH):
         if epoch > args.warm:
             train_scheduler.step(epoch)
